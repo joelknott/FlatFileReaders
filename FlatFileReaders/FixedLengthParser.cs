@@ -11,16 +11,15 @@ namespace FlatFileReaders
     public sealed class FixedLengthParser : IParser
     {
         private readonly Stream stream;
-        private readonly string text;
         private readonly FixedLengthSchema schema;
         private readonly string recordSeparator;
         private readonly char filler;
         private int recordCount;
         private object[] values;
-        private int nextIndex;
         private bool endOfFile;
         private bool hasError;
         private bool isDisposed;
+        private StreamReader reader;
 
         /// <summary>
         /// Initializes a new instance of a FixedLengthParser.
@@ -82,8 +81,8 @@ namespace FlatFileReaders
                 throw new ArgumentNullException("options");
             }
             this.stream = stream;
-            StreamReader reader = new StreamReader(stream);
-            text = reader.ReadToEnd();
+            reader = new StreamReader(stream);
+            
             this.schema = schema;
             recordSeparator = options.RecordSeparator;
             filler = options.FillCharacter;
@@ -145,52 +144,43 @@ namespace FlatFileReaders
             {
                 throw new InvalidOperationException(Resources.ReadingWithErrors);
             }
-            if (nextIndex == text.Length)
+            if (reader.EndOfStream)
             {
                 endOfFile = true;
                 return false;
             }
             ++recordCount;
-            string[] rawValues = readNextLine();
+            var rawValues = readNextLine();
             values = schema.ParseValues(rawValues);
             return true;
         }
 
         private string[] readNextLine()
         {
-            string line = getNextLine();
+            var line = getNextLine();
+
             if (line.Length != schema.TotalWidth)
             {
                 hasError = true;
                 throw new ParserException(recordCount);
             }
-            List<int> widths = schema.ColumnWidths;
-            string[] values = new string[schema.ColumnWidths.Count];
-            int offset = 0;
-            for (int index = 0; index != values.Length; ++index)
+            var widths = schema.ColumnWidths;
+            var stringValues = new string[schema.ColumnWidths.Count];
+            var offset = 0;
+
+            for (var index = 0; index != stringValues.Length; ++index)
             {
-                int width = widths[index];
-                values[index] = line.Substring(offset, width).Trim(filler);
+                var width = widths[index];
+                stringValues[index] = line.Substring(offset, width).Trim(filler);
                 offset += width;
             }
-            return values;
+
+            return stringValues;
         }
 
         private string getNextLine()
         {
-            int index = text.IndexOf(recordSeparator, nextIndex);
-            if (index == -1)
-            {
-                string line = text.Substring(nextIndex);
-                nextIndex = text.Length;
-                return line;
-            }
-            else
-            {
-                string line = text.Substring(nextIndex, index - nextIndex);
-                nextIndex = index + recordSeparator.Length;
-                return line;
-            }            
+            return reader.ReadLine();
         }
 
         /// <summary>
@@ -215,8 +205,10 @@ namespace FlatFileReaders
             {
                 throw new InvalidOperationException(Resources.NoMoreRecords);
             }
-            object[] copy = new object[values.Length];
+            
+            var copy = new object[values.Length];
             Array.Copy(values, copy, values.Length);
+
             return copy;
         }
     }
